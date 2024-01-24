@@ -1,165 +1,149 @@
+# Manager.py
+
 import sqlite3
 import tkinter as tk
 from tkinter import filedialog
 import os
 
-class DatabaseManager:
+class BookDatabaseManager:
+
+    def __init__(self):
+        self.connection = None
+        self.cursor = None
+        # Initialize the manager with a flag to track whether a disconnect attempt has been made
+        self.disconnect_attempted = False
 
     def connect_to_database(self):
-        """
-        Connects to the SQLite database. If the database file doesn't exist,
-        prompts the user to select a database file.
-        """
-        # Check if the database file exists
+        # Establish a connection to the SQLite database
+        if not self.connection:
+            self.connection = sqlite3.connect('Book_Reviews.db')
+            self.cursor = self.connection.cursor()
+
         if not os.path.exists(self.data_base):
-            # Prompt user to select a database file
             self.root = tk.Tk()
             self.root.withdraw()
-            self.data_base = filedialog.askopenfilename(title="Select Database File", filetypes=[("SQLite Database Files", "*.db")])
+            self.data_base = filedialog.askopenfilename(
+                title="Select Database File", filetypes=[("SQLite Database Files", "*.db")]
+            )
             self.root.destroy()
 
             if self.data_base:
-                # If user selected a file, connect to the database
                 self.connection = sqlite3.connect(self.data_base)
             else:
                 print("File was not found!")
                 exit()
-
         else:
-            # If the database file exists, connect to it
             self.connection = sqlite3.connect(self.data_base)
 
         self.cursor = self.connection.cursor()
         return self.cursor
-    
+
     def disconnect_from_database(self):
-        """
-        Disconnects from the database.
-        """
-        # Close the cursor and connection
+        # Disconnect from the database, and reset connection and cursor attributes
         if self.cursor:
-            self.cursor.close()
+            try:
+                self.cursor.close()
+            except sqlite3.ProgrammingError:
+                pass  # Cursor was already closed
 
         if self.connection:
-            self.connection.close()
+            try:
+                self.connection.close()
+            except sqlite3.ProgrammingError:
+                pass  # Connection was already closed
 
-    def show_all_books(self):
-        """
-        Retrieves all books from the database.
-        """
-        # Execute SQL query to select all books
-        self.cursor.execute("SELECT * FROM Books")
+    def retrieve_all_books(self):
+        # Retrieve all books from the database
+        self.cursor.execute("SELECT Books.*, AVG(Reviews.Rating) AS AvgRating "
+                            "FROM Books LEFT JOIN Reviews ON Books.BookID = Reviews.BookID "
+                            "GROUP BY Books.BookID")
         result = self.cursor.fetchall()
         return result
 
     def filter_books(self, filters):
-        """
-        Filters books based on user input parameters.
-
-        Example: SELECT * FROM Books WHERE genre = 'biography'
-        """
-        # Construct and execute SQL query based on filters
-        query = "SELECT * FROM Books WHERE "
+        # Filter books based on user-provided conditions
+        query = "SELECT Books.*, AVG(Reviews.Rating) AS AvgRating FROM Books " \
+                "LEFT JOIN Reviews ON Books.BookID = Reviews.BookID " \
+                "WHERE "
         conditions = []
 
         for key, value in filters.items():
-            conditions.append(f"{key} = '{value}'")
+            conditions.append(f"{key} = ?", (value,))
 
         query += " AND ".join(conditions)
+        query += " GROUP BY Books.BookID"
         self.cursor.execute(query)
         result = self.cursor.fetchall()
         return result
 
-    def select_book_ID(self, book_id):
-        """
-        Selects a specific book by ID.
-        """
-        # Execute SQL query to select a book by ID
-        self.cursor.execute("SELECT * FROM Books WHERE id = ?", (book_id,))
+
+    def select_book_by_id(self, book_id):
+        self.connect_to_database()
+        self.cursor.execute("SELECT Books.*, AVG(Reviews.Rating) AS AvgRating "
+                            "FROM Books LEFT JOIN Reviews ON Books.BookID = Reviews.BookID "
+                            "WHERE Books.BookID = ? "
+                            "GROUP BY Books.BookID", (book_id,))
         result = self.cursor.fetchall()
+        self.disconnect_from_database()
         return result
 
-
-    def add_book(self, title, author, summary, genre):
-        """
-        Adds a book to the database.
-        """
-        # Execute SQL query to insert a new book
-        self.cursor.execute("INSERT INTO Books (title, author, summary, genre) VALUES (?, ?, ?, ?)",
-                            (title, author, summary, genre))
-        self.connection.commit()
-
-    def edit_book(self, book_id, title, author, summary, genre):
-        """
-        Edits/update book information in the database.
-        """
-        # Execute SQL query to update book information
-        self.cursor.execute("UPDATE Books SET title=?, author=?, summary=?, genre=? WHERE id=?",
+    def update_book_info(self, book_id, title, author, summary, genre):
+        self.connect_to_database()
+        self.cursor.execute("UPDATE Books SET Title=?, Author=?, Summary=?, Genre=? WHERE BookID=?",
                             (title, author, summary, genre, book_id))
         self.connection.commit()
+        self.disconnect_from_database()
 
-    def remove_book(self, book_id):
-        """
-        Removes a book from the database.
-        """
-        # Execute SQL query to delete a book by ID
-        self.cursor.execute("DELETE FROM Books WHERE id=?", (book_id,))
+    def add_new_book(self, title, author, summary, genre):
+        self.connect_to_database()
+        self.cursor.execute("INSERT INTO Books (Title, Author, Summary, Genre) VALUES (?, ?, ?, ?)",
+                            (title, author, summary, genre))
         self.connection.commit()
+        self.disconnect_from_database()
+
+    def remove_book_by_id(self, book_id):
+        self.connect_to_database()
+        self.cursor.execute("DELETE FROM Books WHERE BookID=?", (book_id,))
+        self.connection.commit()
+        self.disconnect_from_database()
 
     def add_review(self, book_id, user, rating, review_text):
-        """
-        Adds a review for a specific book.
-        """
-        # Execute SQL query to insert a new review
-        self.cursor.execute("INSERT INTO Reviews (book_id, user, rating, review_text) VALUES (?, ?, ?, ?)",
+        self.connect_to_database()
+        self.cursor.execute("INSERT INTO Reviews (BookID, User, Rating, ReviewText) VALUES (?, ?, ?, ?)",
                             (book_id, user, rating, review_text))
         self.connection.commit()
+        self.disconnect_from_database()
 
-    def show_all_reviews(self):
-        """
-        Retrieves all reviews from the database.
-        """
-        # Execute SQL query to select all reviews
+    def get_all_reviews(self):
+        self.connect_to_database()
         self.cursor.execute("SELECT * FROM Reviews")
         result = self.cursor.fetchall()
+        self.disconnect_from_database()
         return result
 
-    def show_review_by_book(self, book_id):
-        """
-        Retrieves reviews for a specific book.
-        """
-        # Execute SQL query to select reviews for a specific book
-        self.cursor.execute("SELECT * FROM Reviews WHERE book_id=?", (book_id,))
+    def get_reviews_by_book_id(self, book_id):
+        self.connect_to_database()
+        self.cursor.execute("SELECT * FROM Reviews WHERE BookID=?", (book_id,))
         result = self.cursor.fetchall()
+        self.disconnect_from_database()
         return result
 
-    def show_top_books(self):
-        """
-        Retrieves the top-rated books.
-        """
-        # Execute SQL query to calculate average ratings and select top books
+    def get_top_rated_books(self):
+        self.connect_to_database()
         self.cursor.execute("""
-            SELECT Books.*, AVG(Reviews.rating) as avg_rating
-            FROM Books LEFT JOIN Reviews ON Books.id = Reviews.book_id
-            GROUP BY Books.id
-            ORDER BY avg_rating DESC
+            SELECT Books.*, AVG(Reviews.Rating) AS AvgRating
+            FROM Books LEFT JOIN Reviews ON Books.BookID = Reviews.BookID
+            GROUP BY Books.BookID
+            ORDER BY AvgRating DESC
             LIMIT 5
         """)
         result = self.cursor.fetchall()
+        self.disconnect_from_database()
         return result
 
-    def show_author_info(self, author_name):
-        """
-        Retrieves information about the author from external APIs.
-        """
-        # Example: Use external API to get author summary
+    def get_author_information(self, author_name):
         author_summary_api = f"https://en.wikipedia.org/api/rest_v1/page/summary/{author_name}"
-        # Use requests library or another method to make an API call
-        # Example with requests library: response = requests.get(author_summary_api)
-        # Extract relevant information from the API response
-        # Return the extracted information
+    
+        return None
 
-
-
-
-DatabaseManager()
+BookDatabaseManager()
